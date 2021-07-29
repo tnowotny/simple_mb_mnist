@@ -299,7 +299,6 @@ def run_mb(para, g= None):
                 idx= np.arange(STIM_MOD)
                 np.random.shuffle(idx)
                 images[STIM_SHIFT:STIM_SHIFT+STIM_MOD]= images[idx+STIM_SHIFT]
-                print(labels)
                 labels[STIM_SHIFT:STIM_SHIFT+STIM_MOD]= labels[idx+STIM_SHIFT]
         if rs % 500 == 0:
             kc_mbon.pull_var_from_device("g")
