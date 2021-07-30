@@ -131,7 +131,7 @@ def run_mb(para, g= None):
         "Ioffset": 0.0,
         "TauRefrac": 2.0}
     
-    MBON_STIMULUS_CURRENT = 5.0
+    MBON_STIMULUS_CURRENT = 2.0
     PN_KC_WEIGHT = para["PN_KC_WEIGHT"]
     PN_KC_TAU_SYN = 3.0
     KC_MBON_WEIGHT = 0.0
@@ -274,9 +274,12 @@ def run_mb(para, g= None):
 
     plot = para["plot"]
 
-    images = training_images if TRAIN else testing_images
-    labels = training_labels if TRAIN else testing_labels
-
+    # dtermine the inputs to be used
+    images = training_images if para["inputs"] == "training" else testing_images
+    images= images[para["input_range"]]
+    labels = training_labels if para["inputs"] == "training" else testing_labels
+    labels= labels[para["input_range"]]
+    
     # Loop through stimuli
     pn_spikes = ([], [])
     kc_spikes = ([], [])
@@ -284,23 +287,17 @@ def run_mb(para, g= None):
     ggn_spikes= ([], [])
     mbon_v = []
     ggn_v= []
-    STIM_MOD = para["STIM_MOD"]
-    if TRAIN:
-        STIM_SHIFT= para["STIM_SHIFT_TRAIN"]
-        NUM_STIM = para["NUM_STIM_TRAIN"]
-    else:
-        STIM_SHIFT= para["STIM_SHIFT_TEST"]
-        NUM_STIM = para["NUM_STIM_TEST"]
-
-    for rs in range(STIM_SHIFT,NUM_STIM+STIM_SHIFT):
-        s= rs % STIM_MOD
+    n_stim= len(images)
+    NUM_STIM= para["NUM_STIM"] if TRAIN else n_stim
+    for rs in range(NUM_STIM):
+        s= rs % n_stim
         if para["SHUFFLE"]:
             if s == 0:
-                idx= np.arange(STIM_MOD)
+                idx= np.arange(n_stim)
                 np.random.shuffle(idx)
-                images[STIM_SHIFT:STIM_SHIFT+STIM_MOD]= images[idx+STIM_SHIFT]
-                labels[STIM_SHIFT:STIM_SHIFT+STIM_MOD]= labels[idx+STIM_SHIFT]
-        if rs % 500 == 0:
+                images= images[idx]
+                labels= labels[idx]
+        if rs % 1000 == 0:
             kc_mbon.pull_var_from_device("g")
             print("{}: gmax: {}/{}, gmean: {}, nHigh: {}".format(rs, np.max(kc_mbon_g_view), para["wMax"], np.mean(kc_mbon_g_view), len(kc_mbon_g_view[kc_mbon_g_view > 0.9*max(kc_mbon_g_view)])))
         # Set training image
@@ -384,21 +381,20 @@ def run_mb(para, g= None):
         # save classification results
         good= 0.0
         cnt= 0.0
-        for t, s, l in zip(mbon_spikes[0], mbon_spikes[1], labels[STIM_SHIFT:STIM_SHIFT+NUM_STIM]):
+        for t, s, l in zip(mbon_spikes[0], mbon_spikes[1], labels):
             if len(s) > 0:
                 first_spike = np.argmin(t)
                 classification = s[first_spike]
                 good+= 1 if classification == l else 0
                 cnt+= 1
-        with open("test.out","a") as f:
-            if cnt > 0:
-                f.write(para["basename"]+": Classification accuracy: {}\n".format(good/cnt))
-                f.write("{} of {} responses.\n".format(cnt, para["NUM_STIM_TEST"]))
-                print(para["basename"]+": Classification accuracy: {}\n".format(good/cnt))
-                print("{} of {} responses.\n".format(cnt, para["NUM_STIM_TEST"]))
-            else:
-                f.write(para["basename"]+": No output spikes! \n")
-            f.close()
+        if cnt > 0:
+            if para["write_progress"] is not None:
+                para["write_progress"].write("{}".format(good/cnt))
+            print(para["basename"]+": Classification accuracy: {}\n".format(good/cnt))
+            print("{} of {} responses.\n".format(cnt, para["NUM_STIM_TEST"]))
+        else:
+            print(para["basename"]+": No output spikes! \n")
+
             
     stimuli_bounds = np.arange(0.0, NUM_STIM * PRESENT_TIME_MS, PRESENT_TIME_MS)
     if plot:
@@ -429,7 +425,7 @@ def run_mb(para, g= None):
             spike_axes[3].set_title("MBON/GGN")
         
         # Show classification output
-        for b, t, s, l in zip(stimuli_bounds, mbon_spikes[0], mbon_spikes[1], labels[STIM_SHIFT:STIM_SHIFT+NUM_STIM]):
+        for b, t, s, l in zip(stimuli_bounds, mbon_spikes[0], mbon_spikes[1], labels):
             if len(s) > 0:
                 first_spike = np.argmin(t)
                 classification = s[first_spike]
@@ -440,7 +436,7 @@ def run_mb(para, g= None):
 
         # Show training labels
         for i, x in enumerate(stimuli_bounds):
-            spike_axes[0].text(x, 20, labels[STIM_SHIFT+i])
+            spike_axes[0].text(x, 20, labels[i])
         
         fig, axis = plt.subplots()
         axis.hist(kc_mbon_g_view.flatten(), bins=100)
@@ -460,22 +456,22 @@ def run_mb(para, g= None):
         
     if PN_analysis:
         fig= plt.figure()
-        for i in range(np.minimum(NUM_STIM,15*15)):
+        for i in range(np.minimum(n_stim,15*15)):
             x= np.zeros((NUM_PN,))
             x[pn_spikes[1][i]]= PRESENT_TIME_MS-(pn_spikes[0][i] - stimuli_bounds[i])
             plt.subplot(15,15,i+1)
             plt.imshow(np.reshape(x,(28,28)), vmin= 0, vmax= PRESENT_TIME_MS)
-            plt.text(0,5,labels[STIM_SHIFT+i],c="w")
-        idx= np.argsort(labels[STIM_SHIFT:STIM_SHIFT+NUM_STIM])
+            plt.text(0,5,labels[i],c="w")
+        idx= np.argsort(labels)
         if para["INTERACTIVE"]:
             plt.show()
         plt.close()
-        csd= np.zeros((NUM_STIM,NUM_STIM))
-        idx= np.argsort(labels[STIM_SHIFT:STIM_SHIFT+NUM_STIM])
-        for i in range(NUM_STIM):
+        csd= np.zeros((n_stim,n_stim))
+        idx= np.argsort(labels)
+        for i in range(n_stim):
             x= np.zeros((NUM_KC,))
             x[pn_spikes[1][i]]= 1
-            for j in range(NUM_STIM):
+            for j in range(n_stim):
                 y= np.zeros((NUM_KC,))
                 y[pn_spikes[1][j]]= 1
                 csd[i,j]= np.dot(x,y)/(np.linalg.norm(x)*np.linalg.norm(y))
@@ -491,31 +487,30 @@ def run_mb(para, g= None):
         first= True
         the_lbl= 4
         idx= np.array(range(NUM_KC))
-        for i in range(np.minimum(NUM_STIM,15*15)):
+        for i in range(np.minimum(n_stim,15*15)):
             x= np.zeros((NUM_KC,))
             x[kc_spikes[1][i]]= PRESENT_TIME_MS-(kc_spikes[0][i] - stimuli_bounds[i])
-            if (labels[STIM_SHIFT+i] == the_lbl) and first:
+            if (labels[i] == the_lbl) and first:
                 idx= np.argsort(x)
                 first= False
             
             plt.subplot(15,15,i+1)
             plt.imshow(np.reshape(x[idx],(100,200)), vmin= 0, vmax= PRESENT_TIME_MS/3)
-            plt.text(0,20,labels[STIM_SHIFT+i],c="w")
+            plt.text(0,20,labels[i],c="w")
         if para["INTERACTIVE"]:
             plt.show()
         plt.close()
-        csd= np.zeros((NUM_STIM,NUM_STIM))
-        idx= np.argsort(labels[STIM_SHIFT:STIM_SHIFT+NUM_STIM])
+        csd= np.zeros((n_stim,n_stim))
+        idx= np.argsort(labels)
         scsd= np.zeros((10,10))
-        lbl= labels[STIM_SHIFT:STIM_SHIFT+NUM_STIM]
-        for i in range(NUM_STIM):
+        for i in range(n_stim):
             x= np.zeros((NUM_KC,))
             x[kc_spikes[1][i]]= 1
-            for j in range(NUM_STIM):
+            for j in range(n_stim):
                 y= np.zeros((NUM_KC,))
                 y[kc_spikes[1][j]]= 1
                 csd[i,j]= np.dot(x,y)/(np.linalg.norm(x)*np.linalg.norm(y))
-                scsd[int(lbl[i]),int(lbl[j])]+= csd[i,j]
+                scsd[int(labels[i]),int(labels[j])]+= csd[i,j]
         print(scsd)
         intra= np.trace(scsd)
         inter= np.sum(np.sum(scsd))-np.trace(scsd)
@@ -536,8 +531,8 @@ def run_mb(para, g= None):
         kc_mbon.pull_var_from_device("g")
         kc_mbon_g_view = np.reshape(kc_mbon_g_view, (NUM_KC, NUM_MBON))
         np.save("kc_mbon_g.npy", kc_mbon_g_view)
-        for i in range(NUM_STIM):
-            x= kc_mbon_g_view[:,labels[STIM_SHIFT+i]]
+        for i in range(n_stim):
+            x= kc_mbon_g_view[:,labels[i]]
             idx= np.argsort(x)
             x= np.reshape(x[idx],(200,100))
             y= np.zeros((NUM_KC,))
@@ -561,7 +556,7 @@ def run_mb(para, g= None):
             plt.colorbar()
             plt.subplot(1,2,2)
             plt.imshow(y)
-            print("current: {}, confused: {}".format(labels[STIM_SHIFT+i],j))
+            print("current: {}, confused: {}".format(labels[i],j))
             if para[INTERACTIVE]:
                 plt.show()
             plt.close()

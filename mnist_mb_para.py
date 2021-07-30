@@ -1,10 +1,8 @@
 para= {
     "TRAIN": True,
-    "STIM_MOD": 60000,
-    "STIM_SHIFT_TRAIN": 0,
-    "NUM_STIM_TRAIN": 60000,
-    "STIM_SHIFT_TEST": 50000,
-    "NUM_STIM_TEST": 10000,
+    "inputs": "training",
+    "NUM_STIM": 60000,
+    "input_range": range(60000),
     "NUM_PN": 28*28,
     "NUM_KC": 20000,
     "NUM_MBON": 10,
